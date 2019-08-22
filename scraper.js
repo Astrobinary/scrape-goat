@@ -1,12 +1,11 @@
 const cheerio = require("cheerio");
 const request = require("request");
 
-request("https://new.nasdaq.com/", (error, response, html) => {
+request("https://www.sec.gov/Archives/edgar/full-index/2019/QTR3/", (error, response, html) => {
     if (!error && response.statusCode === 200) {
         const $ = cheerio.load(html);
+        const table = $("[summary=heding]");
 
-        const main = $(".content-dashboard-top-reads__title");
-
-        console.log(main.html());
+        console.log(table.html());
     }
 });
