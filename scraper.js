@@ -1,67 +1,83 @@
-const axios = require("axios");
-const cheerio = require("cheerio");
+const axios = require('axios');
+const cheerio = require('cheerio');
 
-const year = "2019";
-const quarter = "3";
+const year = '2019';
+const quarter = '3'; // July(7), August(8), Septemeber(9)
 
-// const sampleJob = ["SmileDirectClub, Inc.", "S-1", "1775625", "2019-08-16", "https://www.sec.gov/Archives/edgar/data/1775625/0001047469-19-004785-index.htm"];
 
-axios.get(`https://www.sec.gov/Archives/edgar/full-index/${year}/QTR${quarter}/crawler.idx`).then(res => {
-    const cleanList = res.data.replace(/[\s\S]*?---?\n/, "").replace(/ {2,}/gm, "  "); //Removes the top header info and normalize spaces for split.
-    const arr = cleanList.split("\n").map(item => item.trim().split("  ")); //Splits on every 2 spaces
-    const _s1 = arr.filter(item => item[1] === "S-1");
+axios.get(`https://www.sec.gov/Archives/edgar/full-index/${year}/QTR${quarter}/crawler.idx`).then((res) => {
+	const cleanList = res.data.replace(/[\s\S]*?---?\n/, '').replace(/ {2,}/gm, '  '); // Removes the top header info and normalize spaces for split.
+	const arr = cleanList.split('\n').map((item) => item.trim().split('  ')); // Splits on every 2 spaces
+	const potentialIPO = arr.filter((item) => item[1] === 'S-1' || item[1] === 'F-1');
 
-    _s1.forEach(job => {
-        scrapeBasicData(job);
-    });
-
-    return _s1;
+	potentialIPO.forEach((job) => {
+		scrapeBasicIPO(job);
+	});
 });
 
+const scrapeBasicIPO = (job) => {
+	const jobInfo = {
+		companyName: job[0], formType: job[1], cik: job[2], dateFiled: job[3], linkToDir: job[4], htmlLink: '', isIPO: true,
+	};
 
+	axios.get(job[4]).then((res) => {
+		const $ = cheerio.load(res.data);
 
-const scrapeBasicData = job => {
-    axios.get(job[4]).then(res => {
-        const $ = cheerio.load(res.data);
+		$('a[href]').each((index, elem) => {
+			if (jobInfo.htmlLink.length > 0) return false;
+			if ($(elem).attr('href').includes('/Archives/edgar/data/')) jobInfo.htmlLink = $(elem).attr('href');
+		});
+	}).then(() => {
+		axios.get(`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${jobInfo.cik}&type=&dateb=&owner=exclude&start=0&count=100&output=atom`).then((res) => {
+			const $ = cheerio.load(res.data);
 
-        //Maybe push this data to database
-        const companyName = job[0], formType = job[1], cik = job[2], dateFiled = job[3], linkToFile = job[4]
+			jobInfo.city = $('[type=business] city').text();
+			jobInfo.state = $('[type=business] state').text();
+			jobInfo.zip = $('[type=business] zip').text();
 
-        let htmlLink = "";
+			if (formatPhoneNumber($('phone').text()) === null) {
+				jobInfo.phone = $('phone').text();
+			} else {
+				jobInfo.phone = formatPhoneNumber($('phone').text());
+			}
 
-        $('a[href]').each((index, elem) => {
-            if (htmlLink.length > 0) return false
-            if ($(elem).attr('href').includes("/Archives/edgar/data/")) htmlLink = ($(elem).attr('href'))
-        });
+			if ($(`entry [term=${jobInfo.formType}]`).get().length === 1 && $('entry').get().length < 100) {
+				jobInfo.isIPO = true;
+			} else if ($(`entry [term=${jobInfo.formType}]`).get().length > 1 && $('entry').get().length < 100) {
+				jobInfo.isIPO = false;
+			} else if ($(`entry [term=${jobInfo.formType}]`).get().length === 0 && $('entry').get().length === 100) {
+				axios.get(`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${jobInfo.cik}&type=&dateb=&owner=exclude&start=100&count=100&output=atom`).then((res) => {
+					const $ = cheerio.load(res.data);
 
+					if ($(`entry [term=${jobInfo.formType}]`).get().length === 0 && $('entry').get().length === 100) {
+						axios.get(`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${jobInfo.cik}&type=&dateb=&owner=exclude&start=200&count=100&output=atom`).then((res) => {
+							const $ = cheerio.load(res.data);
 
-        const accessionNum = $("#secNum").text().trim().slice(18);
-        const mailer = $(".mailer").text().trim().split('\n'); //Grab mailer block
-        const address = `${mailer[1].trim()}, ${mailer[3]}`
-        const phoneNum = formatPhoneNumber(mailer[8])
+							if ($(`entry [term=${jobInfo.formType}]`).get().length === 0 && !$('entry').get().length < 100) {
+								jobInfo.isIPO = false;
+							}
+						});
+					} else {
+						jobInfo.isIPO = false;
+					}
+				});
+			} else {
+				jobInfo.isIPO = false;
+			}
 
-        //Sample output
-        console.log(`
-        Company Name: ${companyName}
-        Accession No: ${accessionNum}
-        Address: ${address}
-        Phone No: ${phoneNum}
-        HTML Link: ${htmlLink}
-        `)
-
-
-    }).catch(err => {
-        console.log(err);
-    });
+			// Push this data to database????
+			if (jobInfo.isIPO) {
+				console.log(`${jobInfo.companyName} ${jobInfo.dateFiled} ${jobInfo.isIPO}`);
+			}
+		});
+	});
 };
 
-//Simple number formatter 
+// Simple number formatter
 const formatPhoneNumber = (phoneNumberString) => {
-    const cleaned = ('' + phoneNumberString).replace(/\D/g, '')
-    const match = cleaned.match(/^(\d{3})(\d{3})(\d{4})$/)
-    if (match) return '(' + match[1] + ') ' + match[2] + '-' + match[3]
+	const cleaned = (`${phoneNumberString}`).replace(/\D/g, '');
+	const match = cleaned.match(/^(\d{3})(\d{3})(\d{4})$/);
+	if (match) return `(${match[1]}) ${match[2]}-${match[3]}`;
 
-    return null
-}
-
-
+	return null;
+};
