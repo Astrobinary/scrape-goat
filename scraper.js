@@ -30,7 +30,7 @@ const scrapeBasicData = job => {
         let htmlLink = "";
 
         $('a[href]').each((index, elem) => {
-            if (htmlLink.length > 1) return false
+            if (htmlLink.length > 0) return false
             if ($(elem).attr('href').includes("/Archives/edgar/data/")) htmlLink = ($(elem).attr('href'))
         });
 
