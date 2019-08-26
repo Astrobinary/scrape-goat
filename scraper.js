@@ -1,5 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const fs = require('fs');
 
 const year = '2019';
 const quarter = '3'; // July(7), August(8), Septemeber(9)
@@ -27,6 +28,7 @@ const scrapeBasicIPO = (job) => {
 			if (jobInfo.htmlLink.length > 0) return false;
 			if ($(elem).attr('href').includes('/Archives/edgar/data/')) jobInfo.htmlLink = $(elem).attr('href');
 		});
+
 	}).then(() => {
 		axios.get(`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${jobInfo.cik}&type=&dateb=&owner=exclude&start=0&count=100&output=atom`).then((res) => {
 			const $ = cheerio.load(res.data);
@@ -81,3 +83,74 @@ const formatPhoneNumber = (phoneNumberString) => {
 
 	return null;
 };
+
+
+/* TEST FILES BELOW */
+// fs.readFile(__dirname + '/IPOs/nt10000709x5_f1.htm', 'utf8', function (err, html) {
+// fs.readFile(__dirname + '/IPOs/a2238913zf-1.htm', 'utf8', function (err, html) { // Whole thing is in a table
+// fs.readFile(__dirname + '/IPOs/dp109911_s1.htm', 'utf8', function (err, html) {
+// fs.readFile(__dirname + '/IPOs/fs12019_thunderbridgeacqii.htm', 'utf8', function (err, html) {
+// fs.readFile(__dirname + '/IPOs/s002626x8_s1.htm', 'utf8', function (err, html) {
+// fs.readFile(__dirname + '/IPOs/tv501372_f1.htm', 'utf8', function (err, html) { // Needs work, horrible html coding, no proper line breaks
+fs.readFile(__dirname + '/IPOs/S-1.html', 'utf8', function (err, html) {
+
+	const $ = cheerio.load(html, {
+		normalizeWhitespace: true,
+	});
+
+
+	//Find marker in table
+	let findCopyTO = $('table').filter(function () {
+		return $(this).text().trim().includes("Copies to");
+	});
+
+	//If not found in table look in p tags
+	if (findCopyTO.text().length === 0) {
+
+		//Adds new block
+		$('p').filter(function () {
+			return $(this).text().trim().includes("Copies to");
+		}).nextAll(`table`).first().children().find('td').append('/NEWBLOCK/');
+
+		///Adds newline marker
+		$('p').filter(function () {
+			return $(this).text().trim().includes("Copies to");
+		}).nextAll(`table`).first().children().find('br').replaceWith('/NEWLINE/');
+
+		//Clean us spaces in text
+		let clean = $('p').filter(function () {
+			return $(this).text().trim().includes("Copies to");
+		}).nextAll(`table`).first().children().text().replace(/\s\s+/g, ' ');
+
+
+		//Replaces clean text with dom text
+		findCopyTO = $('p').filter(function () {
+			return $(this).text().trim().includes("Copies to");
+		}).nextAll(`table`).first().children().text(clean);
+
+	}
+
+	let blocks = findCopyTO.text().replace(/\/NEWLINE\//g, '\n').split('/NEWBLOCK/');
+
+	//Create possbile line breaks if html was coded weird.
+	blocks.forEach((block, i) => {
+
+		//Handles seperating names
+		blocks[i] = blocks[i].replace(/\n?\s?Esq./gim, ' Esq.\n');
+		blocks[i] = blocks[i].replace(/\n?\s?LLP/gim, ' LLP\n');
+
+		//Handles phone numbers
+		blocks[i] = blocks[i].replace(/(\+[0-9]-)/gim, '\n$1');
+		blocks[i] = blocks[i].replace(/(telephone.*?[0-9]*?\))/gmi, '\n$1');
+		blocks[i] = blocks[i].replace(/^((?!.*telephone).*)(\([0-9]*\))/gim, '$1\n$2');
+
+		//Cleans up any extra lines/spaces
+		blocks[i] = blocks[i].replace(/\s{2,}/gm, '\n').trim();
+		console.log(blocks[i]);
+	});
+
+	console.log(blocks);
+
+});
+
+
