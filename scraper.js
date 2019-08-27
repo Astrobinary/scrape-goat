@@ -76,13 +76,13 @@ const quarter = '3'; // July(7), August(8), Septemeber(9)
 // };
 
 // Simple number formatter
-// const formatPhoneNumber = (phoneNumberString) => {
-// 	const cleaned = (`${phoneNumberString}`).replace(/\D/g, '');
-// 	const match = cleaned.match(/^(\d{3})(\d{3})(\d{4})$/);
-// 	if (match) return `(${match[1]}) ${match[2]}-${match[3]}`;
+const getPhoneNumber = (phoneNumberString) => {
+	// const cleaned = (`${phoneNumberString}`).replace(/\D/g, '');
+	const match = phoneNumberString.match(/[\+]?([(]?[0-9]{3}[)]?)([-\s\.]?[0-9]{3})[-\s\.]?([0-9]{4,6})/im);
+	if (match) return `(${match[1]}) ${match[2].replace(/[^0-9]+/g, '')}-${match[3].replace(/[^0-9]+/g, '')}`.replace(/(\(+)/gm, "(").replace(/(\)+)/gm, ")");
 
-// 	return null;
-// };
+	return phoneNumberString;
+};
 
 
 /* TEST FILES BELOW */
@@ -128,17 +128,39 @@ fs.readFile(__dirname + '/IPOs/S-1.html', 'utf8', function (err, html) {
 			return $(this).text().trim().includes("Copies to");
 		}).nextAll(`table`).first().children().text(clean);
 
+	} else {
+		//Adds new block
+		$('table').filter(function () {
+			return $(this).text().trim().includes("Copies to");
+		}).children().find('td').append('/NEWBLOCK/');
+
+		///Adds newline marker
+		$('table').filter(function () {
+			return $(this).text().trim().includes("Copies to");
+		}).children().find('br').replaceWith('/NEWLINE/');
+
+		//Clean us spaces in text
+		let clean = $('table').filter(function () {
+			return $(this).text().trim().includes("Copies to");
+		}).children().text().replace(/\s\s+/g, ' ');
+
+
+		//Replaces clean text with dom text
+		findCopyTO = $('table').filter(function () {
+			return $(this).text().trim().includes("Copies to");
+		}).children().text(clean);
+
 	}
 
 	let blocks = findCopyTO.text().replace(/\/NEWLINE\//g, '\n').split('/NEWBLOCK/');
 
-	let lawyerData = {};
-
+	let lawyerData = [];
 
 	//Create possbile line breaks if html was coded weird.
 	blocks.forEach((block, i) => {
 
-		if (block[i] === undefined) return;
+		if (block.includes("Copies to")) return;
+		if (!block.match(/[^\s]/gm)) return;
 
 		//Handles seperating names
 		blocks[i] = blocks[i].replace(/\n?\s?Esq./gim, ' Esq.\n');
@@ -152,19 +174,109 @@ fs.readFile(__dirname + '/IPOs/S-1.html', 'utf8', function (err, html) {
 		//Cleans up any extra lines/spaces
 		blocks[i] = blocks[i].replace(/\s{2,}/gm, '\n').trim();
 
-		lawyerData[i] = [i];
+		let temp = [];
 
-		blocks[i].split('\n').forEach((line, index) => {
-			// Filter out text here
-			lawyerData[i][index] = line;
+		blocks[i].split('\n').forEach(el => {
+			if (!el.match(/[^\s]/gm)) return;
 
+			temp.push(el.trim());
 		});
+
+		lawyerData.push(temp);
 	});
 
-
-	console.log(lawyerData);
-
+	parseLawyerData(lawyerData);
 
 });
+
+// Left: Issuers Law Firm || Middle: Special Counsel || Right: Underwriter Law Firm 
+const parseLawyerData = (data) => {
+	let objData = [];
+
+	for (let i = 0; i < data.length; i++) {
+		const firm = data[i];
+		let temp = {
+			lawyers: [],
+			name: "",
+			address: "",
+			phone: ""
+		};
+
+		for (let x = 0; x < firm.length; x++) {
+			const line = firm[x];
+
+			//Grab easy lawyer value
+			if (line.toUpperCase().includes("ESQ.")) {
+				temp.name = temp.lawyers.push(firm[x]);
+			}
+
+			//Grab easy company value
+			if (line.toUpperCase().includes("LLP") || line.toUpperCase().includes("L.L.P") || line.toUpperCase().includes("INC.")) {
+				temp.name = firm[x];
+			}
+
+			//Grab easy phone value last line
+			if (firm[firm.length - 1].replace(/[^0-9]/g, "").length >= 7) {
+				if (firm[firm.length - 1].includes("fac")) {
+					temp.fax = getPhoneNumber(firm[firm.length - 1]);
+				} else {
+					temp.phone = getPhoneNumber(firm[firm.length - 1]);
+				}
+			}
+
+			//2nd to last line. Possible: Number, Country, Start of Address
+			if (firm[firm.length - 2].replace(/[^0-9]/g, "").length >= 7) {
+
+				if (firm[firm.length - 2].includes("fac")) {
+					temp.fax = getPhoneNumber(firm[firm.length - 2]);
+				} else {
+					temp.phone = getPhoneNumber(firm[firm.length - 2]);
+				}
+
+				//Double number, next lines should be address
+				if (temp.name.length < 1) {
+					//3 line address, maybe because of country listed.
+					temp.address = `${firm[firm.length - 5]}, ${firm[firm.length - 4]}, ${firm[firm.length - 3]}`;
+
+					//Line 6 would be company if here so above -6 has to be lawyers
+					if (x <= firm.length - 6 && temp.name.length < 1) {
+						temp.lawyers.push(firm[x]);
+					}
+				} else {
+
+					if (firm[firm.length - 4].toUpperCase().includes("LLP") || firm[firm.length - 4].toUpperCase().includes("L.L.P")) {
+						temp.address = `${firm[firm.length - 3]}`;
+					} else {
+						temp.address = `${firm[firm.length - 4]}, ${firm[firm.length - 3]}`;
+					}
+
+					if (x <= firm.length - 4 && temp.name.length < 1) {
+						temp.lawyers.push(firm[x]);
+					}
+				}
+			} else {
+
+				if (firm[firm.length - 2].match(/\d/gm)) {
+					temp.address = `${firm[firm.length - 3]}, ${firm[firm.length - 2]}`;
+
+					//Line 5 would be company if here so above -4 has to be lawyers
+					if (x <= firm.length - 4 && temp.name.length < 1) {
+						temp.lawyers.push(firm[x]);
+					}
+				} else {
+					//3 line address, maybe because of country listed.
+					temp.address = `${firm[firm.length - 4]}, ${firm[firm.length - 3]}, ${firm[firm.length - 2]}`;
+
+					//Line 5 would be company if here so above -6 has to be lawyers
+					if (x <= firm.length - 6 && temp.name.length < 1) {
+						temp.lawyers.push(firm[x]);
+					}
+				}
+			}
+		}
+		objData.push(temp);
+	}
+	console.log(objData);
+};
 
 
