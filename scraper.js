@@ -21,6 +21,8 @@ const quarter = '3'; // July(7), August(8), Septemeber(9)
 // 		companyName: job[0], formType: job[1], cik: job[2], dateFiled: job[3], linkToDir: job[4], htmlLink: '', isIPO: true,
 // 	};
 
+// // Use to find who filed: https://www.secinfo.com/$/Search.asp?Find=0001144204
+
 // 	axios.get(job[4]).then((res) => {
 // 		const $ = cheerio.load(res.data);
 
@@ -96,59 +98,47 @@ fs.readFile(__dirname + '/IPOs/S-1.html', 'utf8', function (err, html) {
 
 	if (err) return console.log("ERROR: Make sure to add html files inside IPO folder.");
 
+	//Array of lawfirm columns
+	let lawFirmData = getLawyerData(html);
+	let maxAggregate = getMaxAggregate(html);
+
+	console.log(maxAggregate);
+
+});
+
+const getLawyerData = (html) => {
 	const $ = cheerio.load(html);
 
 
 	//Find marker in table
 	let findCopyTO = $('table').filter(function () {
-		return $(this).text().trim().includes("Copies to");
+		return $(this).text().toUpperCase().includes("COPIES TO");
 	});
 
 	//If not found in table look in p tags
 	if (findCopyTO.text().length === 0) {
 
-		//Adds new block
-		$('p').filter(function () {
-			return $(this).text().trim().includes("Copies to");
-		}).nextAll(`table`).first().children().find('td').append('/NEWBLOCK/');
+		let targetTable = $('p').filter(function () {
+			return $(this).text().toUpperCase().includes("COPIES TO");
+		}).nextAll(`table`).first().children();
 
-		///Adds newline marker
-		$('p').filter(function () {
-			return $(this).text().trim().includes("Copies to");
-		}).nextAll(`table`).first().children().find('br').replaceWith('/NEWLINE/');
+		targetTable.find('td').append('/NEWBLOCK/');
+		targetTable.find('br').append('/NEWLINE/');
 
-		//Clean us spaces in text
-		let clean = $('p').filter(function () {
-			return $(this).text().trim().includes("Copies to");
-		}).nextAll(`table`).first().children().text().replace(/\s\s+/g, ' ');
-
-
-		//Replaces clean text with dom text
-		findCopyTO = $('p').filter(function () {
-			return $(this).text().trim().includes("Copies to");
-		}).nextAll(`table`).first().children().text(clean);
+		let clean = targetTable.text().replace(/\s\s+/g, ' ');
+		findCopyTO = targetTable.text(clean);
 
 	} else {
-		//Adds new block
-		$('table').filter(function () {
-			return $(this).text().trim().includes("Copies to");
-		}).children().find('td').append('/NEWBLOCK/');
 
-		///Adds newline marker
-		$('table').filter(function () {
-			return $(this).text().trim().includes("Copies to");
-		}).children().find('br').replaceWith('/NEWLINE/');
+		let targetTable = $('table').filter(function () {
+			return $(this).text().toUpperCase().includes("COPIES TO");
+		}).children();
 
-		//Clean us spaces in text
-		let clean = $('table').filter(function () {
-			return $(this).text().trim().includes("Copies to");
-		}).children().text().replace(/\s\s+/g, ' ');
+		targetTable.find('td').append('/NEWBLOCK/');
+		targetTable.find('br').append('/NEWLINE/');
 
-
-		//Replaces clean text with dom text
-		findCopyTO = $('table').filter(function () {
-			return $(this).text().trim().includes("Copies to");
-		}).children().text(clean);
+		let clean = targetTable.text().replace(/\s\s+/g, ' ');
+		findCopyTO = targetTable.text(clean);
 
 	}
 
@@ -178,16 +168,14 @@ fs.readFile(__dirname + '/IPOs/S-1.html', 'utf8', function (err, html) {
 
 		blocks[i].split('\n').forEach(el => {
 			if (!el.match(/[^\s]/gm)) return;
-
 			temp.push(el.trim());
 		});
 
 		lawyerData.push(temp);
 	});
 
-	parseLawyerData(lawyerData);
-
-});
+	return parseLawyerData(lawyerData);
+};
 
 // Left: Issuers Law Firm || Middle: Special Counsel || Right: Underwriter Law Firm 
 const parseLawyerData = (data) => {
@@ -276,7 +264,30 @@ const parseLawyerData = (data) => {
 		}
 		objData.push(temp);
 	}
-	console.log(objData);
+
+	return objData;
 };
 
+
+const getMaxAggregate = (html) => {
+	const $ = cheerio.load(html);
+
+	let targetTable = $('table').filter(function () {
+		return $(this).text().toUpperCase().includes("TITLE");
+	}).first().children();
+
+
+	var numberPattern = /[0-9.,]+/gm;
+	const list = targetTable.text().match(numberPattern);
+
+
+	let numList = list.map((i) => {
+		return parseInt(i.replace(/,/gm, ""));
+	}).filter((x) => {
+		return !isNaN(x);
+	});
+
+	return maxAggregate = Math.max(...numList).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+};
 
