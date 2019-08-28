@@ -22,6 +22,7 @@ const quarter = '3'; // July(7), August(8), Septemeber(9)
 // 	};
 
 // // Use to find who filed: https://www.secinfo.com/$/Search.asp?Find=0001144204
+// // Live feed!! https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&CIK=&type=s-1&company=&dateb=&owner=include&start=0&count=100&output=atom
 
 // 	axios.get(job[4]).then((res) => {
 // 		const $ = cheerio.load(res.data);
@@ -93,7 +94,7 @@ const getPhoneNumber = (phoneNumberString) => {
 // fs.readFile(__dirname + '/IPOs/dp109911_s1.htm', 'utf8', function (err, html) {
 // fs.readFile(__dirname + '/IPOs/fs12019_thunderbridgeacqii.htm', 'utf8', function (err, html) {
 // fs.readFile(__dirname + '/IPOs/s002626x8_s1.htm', 'utf8', function (err, html) {
-// fs.readFile(__dirname + '/IPOs/tv501372_f1.htm', 'utf8', function (err, html) { // Needs work, horrible html coding, no proper line breaks
+// fs.readFile(__dirname + '/IPOs/tv501372_f1.htm', 'utf8', function (err, html) { // Does not have underwriter table
 fs.readFile(__dirname + '/IPOs/S-1.html', 'utf8', function (err, html) {
 
 	if (err) return console.log("ERROR: Make sure to add html files inside IPO folder.");
@@ -101,8 +102,11 @@ fs.readFile(__dirname + '/IPOs/S-1.html', 'utf8', function (err, html) {
 	//Array of lawfirm columns
 	let lawFirmData = getLawyerData(html);
 	let maxAggregate = getMaxAggregate(html);
+	let underwriterTable = getUnderwriterTable(html);
+	let underwriters = getUnderwriters(html);
 
-	console.log(maxAggregate);
+	console.log(underwriters);
+	console.log(underwriterTable);
 
 });
 
@@ -129,7 +133,6 @@ const getLawyerData = (html) => {
 		findCopyTO = targetTable.text(clean);
 
 	} else {
-
 		let targetTable = $('table').filter(function () {
 			return $(this).text().toUpperCase().includes("COPIES TO");
 		}).children();
@@ -290,4 +293,91 @@ const getMaxAggregate = (html) => {
 	return maxAggregate = Math.max(...numList).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
 };
+
+const getUnderwriterTable = (html) => {
+	const $ = cheerio.load(html);
+
+	let tocTable = $('td').filter(function () {
+		return $(this).find('a').text().toUpperCase().includes("UNDERWRITING");
+	});
+
+	let link = tocTable.find('a').attr("href").split('#')[1];
+
+
+	let targetPage = $('p').filter(function () {
+		let attr = $(this).find('a').attr('name');
+		if (attr === undefined) return;
+		if (attr.includes(link)) return $(this);
+	});
+
+	let targetTable;
+
+	targetTable = targetPage.nextAll().filter(function () {
+		if ($(this).children().first().has('table').text().includes("Number of"))
+			return $(this).children().first().has('table');
+	}).first();
+
+	if ((/^[a-zA-Z]*$/).test(targetTable.text())) {
+		targetTable = targetPage.nextAll('table').first();
+	}
+
+	if (!targetTable.text().includes("Number")) {
+		console.log("Could not find table...");
+	} else {
+		console.log(targetTable.text());
+	}
+
+};
+
+
+const getUnderwriters = (html) => {
+	const $ = cheerio.load(html);
+
+	let bottomMarker = $('p').filter(function () {
+		let temp = $(this).text().replace(/\s+/gm, "");
+		if (temp.includes('Prospectusdated') || temp.includes('Thedateofthis')) return $(this);
+
+	});
+
+	let table1 = bottomMarker.prevAll().has('tr').first();
+	let table2 = table1.prevAll().has('tr').first();
+
+	let rawUnderwriters = "";
+
+	if (!/\d/.test(table2.text())) {
+		table2.find('tr').append('/NEWLINE/');
+		rawUnderwriters += table2.text();
+		rawUnderwriters += table1.text();
+	} else if (!/\d/.test(table1.text())) {
+		table1.find('tr').append('/NEWLINE/');
+		rawUnderwriters += table1.text();
+	} else {
+		rawUnderwriters += bottomMarker.prevAll().has('b').first().text().replace(/\s/gm, ' ');
+	}
+
+	let cleanUnderwriters = rawUnderwriters;
+
+	let blocks = cleanUnderwriters.split('/NEWLINE/');
+	let underwriterData = [];
+
+	//Create possbile line breaks if html was coded weird.
+	blocks.forEach((block, i) => {
+		if (!block.match(/[^\s]/gm)) return;
+		//Cleans up any extra lines/spaces
+		blocks[i] = blocks[i].replace(/\s{2,}/gm, '\n').trim();
+
+		let temp = [];
+
+		blocks[i].split('\n').forEach(el => {
+			if (!el.match(/[^\s]/gm)) return;
+			temp.push(el.trim());
+		});
+
+		underwriterData.push(temp);
+	});
+
+	return underwriterData;
+
+};
+
 
