@@ -2,98 +2,101 @@ const axios = require("axios");
 const cheerio = require("cheerio");
 const fs = require("fs");
 
+const textVersion = require("textversionjs");
+const he = require("he");
+
 const year = "2019";
 const quarter = "3"; // July(7), August(8), Septemeber(9)
 
-// axios.get(`https://www.sec.gov/Archives/edgar/full-index/${year}/QTR${quarter}/crawler.idx`).then(res => {
-//     const cleanList = res.data.replace(/[\s\S]*?---?\n/, "").replace(/ {2,}/gm, "  "); // Removes the top header info and normalize spaces for split.
-//     const arr = cleanList.split("\n").map(item => item.trim().split("  ")); // Splits on every 2 spaces
-//     const potentialIPO = arr.filter(item => item[1] === "S-1" || item[1] === "F-1");
+axios.get(`https://www.sec.gov/Archives/edgar/full-index/${year}/QTR${quarter}/crawler.idx`).then(res => {
+    const cleanList = res.data.replace(/[\s\S]*?---?\n/, "").replace(/ {2,}/gm, "  "); // Removes the top header info and normalize spaces for split.
+    const arr = cleanList.split("\n").map(item => item.trim().split("  ")); // Splits on every 2 spaces
+    const potentialIPO = arr.filter(item => item[1] === "S-1" || item[1] === "F-1");
 
-//     potentialIPO.forEach(job => {
-//         scrapeBasicIPO(job);
-//     });
-// });
+    potentialIPO.forEach(job => {
+        scrapeBasicIPO(job);
+    });
+});
 
-// const scrapeBasicIPO = job => {
-//     const jobInfo = {
-//         companyName: job[0],
-//         formType: job[1],
-//         cik: job[2],
-//         dateFiled: job[3],
-//         linkToDir: job[4],
-//         htmlLink: "",
-//         isIPO: true
-//     };
+const scrapeBasicIPO = job => {
+    const jobInfo = {
+        companyName: job[0],
+        formType: job[1],
+        cik: job[2],
+        dateFiled: job[3],
+        linkToDir: job[4],
+        htmlLink: "",
+        isIPO: true
+    };
 
-//     // Use to find who filed: https://www.secinfo.com/$/Search.asp?Find=0001144204
-//     // Live feed!! https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&CIK=&type=s-1&company=&dateb=&owner=include&start=0&count=100&output=atom
+    // Use to find who filed: https://www.secinfo.com/$/Search.asp?Find=0001144204
+    // Live feed!! https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&CIK=&type=s-1&company=&dateb=&owner=include&start=0&count=100&output=atom
 
-//     axios
-//         .get(job[4])
-//         .then(res => {
-//             const $ = cheerio.load(res.data);
+    axios
+        .get(job[4])
+        .then(res => {
+            const $ = cheerio.load(res.data);
 
-//             $("a[href]").each((index, elem) => {
-//                 if (jobInfo.htmlLink.length > 0) return false;
-//                 if (
-//                     $(elem)
-//                         .attr("href")
-//                         .includes("/Archives/edgar/data/")
-//                 )
-//                     jobInfo.htmlLink = $(elem).attr("href");
-//             });
-//         })
-//         .then(() => {
-//             axios.get(`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${jobInfo.cik}&type=&dateb=&owner=exclude&start=0&count=100&output=atom`).then(res => {
-//                 const $ = cheerio.load(res.data);
+            $("a[href]").each((index, elem) => {
+                if (jobInfo.htmlLink.length > 0) return false;
+                if (
+                    $(elem)
+                        .attr("href")
+                        .includes("/Archives/edgar/data/")
+                )
+                    jobInfo.htmlLink = $(elem).attr("href");
+            });
+        })
+        .then(() => {
+            axios.get(`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${jobInfo.cik}&type=&dateb=&owner=exclude&start=0&count=100&output=atom`).then(res => {
+                const $ = cheerio.load(res.data);
 
-//                 jobInfo.city = $("[type=business] city").text();
-//                 jobInfo.state = $("[type=business] state").text();
-//                 jobInfo.zip = $("[type=business] zip").text();
+                jobInfo.city = $("[type=business] city").text();
+                jobInfo.state = $("[type=business] state").text();
+                jobInfo.zip = $("[type=business] zip").text();
 
-//                 if (getPhoneNumber($("phone").text()) === null) {
-//                     jobInfo.phone = $("phone").text();
-//                 } else {
-//                     jobInfo.phone = getPhoneNumber($("phone").text());
-//                 }
+                if (getPhoneNumber($("phone").text()) === null) {
+                    jobInfo.phone = $("phone").text();
+                } else {
+                    jobInfo.phone = getPhoneNumber($("phone").text());
+                }
 
-//                 if ($(`entry [term=${jobInfo.formType}]`).get().length === 1 && $("entry").get().length < 100) {
-//                     jobInfo.isIPO = true;
-//                 } else if ($(`entry [term=${jobInfo.formType}]`).get().length > 1 && $("entry").get().length < 100) {
-//                     jobInfo.isIPO = false;
-//                 } else if ($(`entry [term=${jobInfo.formType}]`).get().length === 0 && $("entry").get().length === 100) {
-//                     axios.get(`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${jobInfo.cik}&type=&dateb=&owner=exclude&start=100&count=100&output=atom`).then(res => {
-//                         const $ = cheerio.load(res.data);
+                if ($(`entry [term=${jobInfo.formType}]`).get().length === 1 && $("entry").get().length < 100) {
+                    jobInfo.isIPO = true;
+                } else if ($(`entry [term=${jobInfo.formType}]`).get().length > 1 && $("entry").get().length < 100) {
+                    jobInfo.isIPO = false;
+                } else if ($(`entry [term=${jobInfo.formType}]`).get().length === 0 && $("entry").get().length === 100) {
+                    axios.get(`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${jobInfo.cik}&type=&dateb=&owner=exclude&start=100&count=100&output=atom`).then(res => {
+                        const $ = cheerio.load(res.data);
 
-//                         if ($(`entry [term=${jobInfo.formType}]`).get().length === 0 && $("entry").get().length === 100) {
-//                             axios.get(`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${jobInfo.cik}&type=&dateb=&owner=exclude&start=200&count=100&output=atom`).then(res => {
-//                                 const $ = cheerio.load(res.data);
+                        if ($(`entry [term=${jobInfo.formType}]`).get().length === 0 && $("entry").get().length === 100) {
+                            axios.get(`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${jobInfo.cik}&type=&dateb=&owner=exclude&start=200&count=100&output=atom`).then(res => {
+                                const $ = cheerio.load(res.data);
 
-//                                 if ($(`entry [term=${jobInfo.formType}]`).get().length === 0 && !$("entry").get().length < 100) {
-//                                     jobInfo.isIPO = false;
-//                                 }
-//                             });
-//                         } else {
-//                             jobInfo.isIPO = false;
-//                         }
-//                     });
-//                 } else {
-//                     jobInfo.isIPO = false;
-//                 }
+                                if ($(`entry [term=${jobInfo.formType}]`).get().length === 0 && !$("entry").get().length < 100) {
+                                    jobInfo.isIPO = false;
+                                }
+                            });
+                        } else {
+                            jobInfo.isIPO = false;
+                        }
+                    });
+                } else {
+                    jobInfo.isIPO = false;
+                }
 
-//                 // Push this data to database????
-//                 if (jobInfo.isIPO) {
-//                     axios.get(`https://www.sec.gov/${jobInfo.htmlLink}`).then(res => {
-//                         console.log(`~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~`);
-//                         console.log(`${jobInfo.companyName} ${jobInfo.dateFiled} ${jobInfo.htmlLink}`);
-//                         scrapeHTML(res.data);
-//                         console.log(`-------------------------------------------------------------------`);
-//                     });
-//                 }
-//             });
-//         });
-// };
+                // Push this data to database????
+                if (jobInfo.isIPO) {
+                    axios.get(`https://www.sec.gov/${jobInfo.htmlLink}`).then(res => {
+                        console.log(`~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~`);
+                        console.log(`${jobInfo.companyName} ${jobInfo.dateFiled} ${jobInfo.htmlLink}`);
+                        scrapeHTML(res.data);
+                        console.log(`-------------------------------------------------------------------`);
+                    });
+                }
+            });
+        });
+};
 
 // Simple number formatter
 const getPhoneNumber = phoneNumberString => {
@@ -110,7 +113,7 @@ const getPhoneNumber = phoneNumberString => {
 // fs.readFile(__dirname + '/IPOs/dp109911_s1.htm', 'utf8', function (err, html) {
 // fs.readFile(__dirname + '/IPOs/fs12019_thunderbridgeacqii.htm', 'utf8', function (err, html) {
 // fs.readFile(__dirname + '/IPOs/s002626x8_s1.htm', 'utf8', function (err, html) {
-// fs.readFile(__dirname + "/IPOs/zzz.htm", "utf8", function(err, html) {
+// fs.readFile(__dirname + "/IPOs/ronn_s1.htm", "utf8", function(err, html) {
 //     // Does not have underwriter table
 //     // fs.readFile(__dirname + "/IPOs/S-1.html", "utf8", function(err, html) {
 //     if (err) return console.log("ERROR: Make sure to add html files inside IPO folder.");
@@ -130,101 +133,40 @@ const scrapeHTML = html => {
     let obj = {};
 
     let lawFirmData = getLawyerData(html);
-    let maxAggregate = getMaxAggregate(html);
+    // let maxAggregate = getMaxAggregate(html);
 
     // obj.maxAggregate = maxAggregate;
 
-    console.log(lawFirmData);
+    // console.log(lawFirmData);
 
     return obj;
 };
 
 const getLawyerData = html => {
     const $ = cheerio.load(html);
+    const CopiesPtn = /Copies([\s\S]*?)Approximate\n? *?date/im;
+    const CopyPtn = /Copy([\s\S]*?)Approximate\n? *?date/im;
 
-    //Find marker in table
-    let findCopyTO = $("table").filter(function() {
-        return $(this)
-            .text()
-            .toUpperCase()
-            .includes("COPIES TO");
-    });
+    let match = "";
+    let body = $("body");
 
-    //If not found in table look in p tags
-    if (findCopyTO.text().length === 0) {
-        let targetTable = $("p")
-            .filter(function() {
-                return $(this)
-                    .text()
-                    .toUpperCase()
-                    .includes("COPIES");
-            })
-            .nextAll()
-            .first();
+    const fullText = textVersion(body);
 
-        targetTable.find("td").append("/NEWBLOCK/");
-        targetTable.find("br").append("/NEWLINE/");
-
-        // if (!findCopyTO.text().includes("/NEWLINE/")) console.log("only 1 line!");
-
-        let clean = targetTable.text().replace(/\s\s+/g, " ");
-        findCopyTO = targetTable.text(clean);
+    if (CopiesPtn.test(fullText)) {
+        match = fullText.match(CopiesPtn);
     } else {
-        let targetTable = $("table")
-            .filter(function() {
-                return $(this)
-                    .text()
-                    .toUpperCase()
-                    .includes("COPIES TO");
-            })
-            .children();
-
-        targetTable.find("td").append("/NEWBLOCK/");
-        targetTable.find("br").append("/NEWLINE/");
-
-        console.log(targetTable.text());
-
-        let clean = targetTable.text().replace(/\s\s+/g, " ");
-        findCopyTO = targetTable.text(clean);
+        match = fullText.match(CopyPtn);
     }
 
-    let blocks = findCopyTO
-        .text()
-        .replace(/\/NEWLINE\//g, "\n")
-        .split("/NEWBLOCK/");
+    if (match === null) return console.error("No copy to language found.");
 
-    let lawyerData = [];
+    match = match[0]
+        .replace(/cop[\s\S]*?:/gim, "") // remove "copy to" line
+        .replace(/Approximate\n? *?date[\s\S]*/gm, ""); // remove "approx" line to end
 
-    //Create possbile line breaks if html was coded weird.
-    blocks.forEach((block, i) => {
-        if (block.includes("Copies to")) return;
-        if (!block.match(/[^\s]/gm)) return;
+    console.log(he.decode(match.trim()));
 
-        //Handles seperating names
-        blocks[i] = blocks[i].replace(/\n?\s?Esq./gim, " Esq.\n");
-        blocks[i] = blocks[i].replace(/\n?\s?P.C./gim, " P.C.\n");
-        blocks[i] = blocks[i].replace(/\n?\s?Corporation/gim, " Corporation\n");
-        blocks[i] = blocks[i].replace(/\n?\s?LLP/gim, " LLP\n");
-
-        //Handles phone numbers
-        blocks[i] = blocks[i].replace(/(\+[0-9]-)/gim, "\n$1");
-        blocks[i] = blocks[i].replace(/(telephone.*?[0-9]*?\))/gim, "\n$1");
-        blocks[i] = blocks[i].replace(/^((?!.*telephone).*)(\([0-9]*\))/gim, "$1\n$2");
-
-        //Cleans up any extra lines/spaces
-        blocks[i] = blocks[i].replace(/\s{2,}/gm, "\n").trim();
-
-        let temp = [];
-
-        blocks[i].split("\n").forEach(el => {
-            if (!el.match(/[^\s]/gm)) return;
-            temp.push(el.trim());
-        });
-
-        lawyerData.push(temp);
-    });
-
-    return parseLawyerData(lawyerData);
+    return he.decode(match.trim());
 };
 
 // Left: Issuers Law Firm || Middle: Special Counsel || Right: Underwriter Law Firm
